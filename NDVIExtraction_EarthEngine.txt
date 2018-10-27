@@ -1,0 +1,56 @@
+//Import of landsat 8 data and region of interest--------------------------------------
+var l8toa = ee.ImageCollection("LANDSAT/LC08/C01/T1_TOA"),
+    roi = /* color: #d63000 */ee.Geometry.Point([24.491681685231697, 60.31264117017295]);
+
+
+//Data preparation and preprocessing----------------------------------------------------
+	
+// UNIX time in milliseconds.
+var timeField = 'system:time_start';
+
+//function to mask clouds in Landsat 8 imagery.
+var maskClouds = function(image) {
+  var quality = image.select('BQA'); //BQA = Quality Assessment Band with infos of usefulness of pixels
+  //select() function is useful for extracting the bands of interest from an image
+  var cloud01 = quality.eq(61440); //High-confidence clouds with Cirrus clouds
+//logical operator eq() which stands for "equals."
+//We use eq(61440) to create a binary image in which all the pixels that do not have the value of 1 in the BQA band (those that are probabily Cirrus clouds
+) get a value of 0 in the resulting image.
+  var cloud02 = quality.eq(53248); //High-confidence clouds
+  var cloud03 = quality.eq(28672); //Cirrus clouds
+  var mask = cloud01.or(cloud02).or(cloud03).not(); // Create a binary mask.
+// As a result of this masking, all the pixels that are probably clouds are transparent and will be excluded from any analysis you do on the image.
+  return image.updateMask(mask);
+};
+
+//add variables for NDVI, time and a constant
+// to Landsat 8 imagery.
+var addVariables = function(image) {
+  // Compute time in fractional years since the epoch.
+  var date = ee.Date(image.get(timeField));   //get time also for pixels that have time not stored in the usual System column time_start property
+  var years = date.difference(ee.Date('1970-01-01'), 'year');  //compute time in year fractions elapsed since 1st January 1970
+  // Return the image with the added bands.
+  return image
+    // Add an NDVI band.
+    .addBands(image.normalizedDifference(['B5', 'B4']).rename('NDVI')).float()
+};
+
+// Remove clouds, add variables and filter to the area of interest.
+var filteredLandsat = l8toa
+  .filterBounds(roi)
+  .map(maskClouds)
+  .map(addVariables);
+  
+  
+   // Plot a time series of NDVI at a single location.
+var l8Chart = ui.Chart.image.series(filteredLandsat.select('NDVI'), roi)
+    .setChartType('ScatterChart')
+    .setOptions({
+      title: 'Landsat 8 NDVI time series at ROI',
+      trendlines: {0: {
+        color: 'CC0000'
+      }},
+      lineWidth: 1,
+      pointSize: 3,
+    });
+print(l8Chart);
